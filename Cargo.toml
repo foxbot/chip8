@@ -1,7 +1,7 @@
 [package]
 name = "chip8"
 version = "0.1.0"
-authors = ["Christopher F. <foxbot@protonmail.com>"]
+authors = ["Christopher Felegy <foxbot@protonmail.com>"]
 
 [dependencies]
-piston_window = "0.82.0"
+sdl2 = "0.31.0"
