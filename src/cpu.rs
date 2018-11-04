@@ -3,8 +3,7 @@ use std::fmt::{Debug, Formatter, Result};
 //pub const TIME_PER_UPDATE: f64 = 1000.0 / 60.0;
 pub const GFX_COLS: usize = 64;
 pub const GFX_ROWS: usize = 32;
-const GFX_SIZE: usize = GFX_COLS * GFX_ROWS;
-const MAX_ROM_SIZE: usize = 0x1000 - 0x200;
+//const MAX_ROM_SIZE: usize = 0x1000 - 0x200;
 
 const FONT: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -27,7 +26,7 @@ const FONT: [u8; 80] = [
 
 pub struct Cpu {
     mem: [u8; 4096],
-    pub gfx: [u8; GFX_SIZE],
+    pub gfx: [[u8; GFX_COLS]; GFX_ROWS],
     reg: [u8; 16],
     op: u16,
     idx: u16,
@@ -36,7 +35,7 @@ pub struct Cpu {
     snd_timer: u8,
     stack: [usize; 16],
     sp: usize,
-    key: [u8; 16],
+    pub key: [u8; 16],
     pub draw: bool,
 }
 
@@ -44,7 +43,7 @@ impl Cpu {
     pub fn new() -> Cpu {
         let mut cpu = Cpu {
             mem: [0; 4096],
-            gfx: [0; GFX_SIZE],
+            gfx: [[0; GFX_COLS]; GFX_ROWS],
             reg: [0; 16],
             op: 0,
             idx: 0,
@@ -65,12 +64,15 @@ impl Cpu {
         cpu
     }
 
-    pub fn load_rom(&mut self) {
-        let rom = include_bytes!("../roms/pong.ch8");
+    pub fn load_rom(&mut self, path: &str) {
+        use std::fs::File;
+        use std::io::prelude::*;
+
+        let mut f = File::open(path).unwrap();
+        let mut rom: [u8; 3584] = [0; 3584];
+        f.read(&mut rom).unwrap();
+
         let size = rom.len();
-        if size > MAX_ROM_SIZE {
-            panic!("the ROM is too big")
-        }
         for i in 0..size {
             self.mem[0x200 + i] = rom[i];
         }
@@ -91,8 +93,9 @@ impl Cpu {
                 match op & 0x0FFF {
                     // CLS clear screen
                     0x00E0 => {
-                        self.gfx = [0; GFX_SIZE];
+                        self.gfx = [[0; GFX_COLS]; GFX_ROWS];
                         self.draw = true;
+                        self.pc = self.pc + 2;
                     }
                     // RET return from subroutine
                     0x00EE => {
@@ -102,7 +105,9 @@ impl Cpu {
                         let dst = self.stack[self.sp];
                         self.pc = dst;
                     }
-                    _ => {} // ignore SYS opcodes
+                    _ => {
+                        panic!("unhandled opcode {:4X} at {:4X}", op, self.pc);
+                    }
                 }
             }
             // 0x1NNN JP addr: jump to
@@ -112,7 +117,7 @@ impl Cpu {
             }
             // 0x2NNN CALL addr: subroutine
             0x2000 => {
-                self.stack[self.sp] = self.pc;
+                self.stack[self.sp] = self.pc + 2;
                 self.sp = self.sp + 1;
 
                 let dst = op & 0x0FFF;
@@ -157,7 +162,7 @@ impl Cpu {
             0x7000 => {
                 let reg = ((op & 0x0F00) >> 8) as usize;
                 let val = (op & 0x00FF) as u8;
-                self.reg[reg] = self.reg[reg] + val;
+                self.reg[reg] = self.reg[reg].saturating_add(val);
                 self.pc = self.pc + 2;
             }
             // 0x8xyz Register Arithmetic
@@ -291,11 +296,15 @@ impl Cpu {
                     let pixel = self.mem[i + line];
                     for col in 0..8 {
                         if (pixel & (0x80 >> col)) != 0 {
-                            let offset = x + col + ((y + line) * 64);
-                            if self.gfx[offset] == 1 {
+                            let mut tx = x + col;
+                            if tx > GFX_COLS {
+                                tx = tx - GFX_COLS;
+                            }
+                            let ty = y + line;
+                            if self.gfx[ty][tx] == 1 {
                                 self.reg[0xF] = 1;
                             }
-                            self.gfx[offset] ^= 1;
+                            self.gfx[ty][tx] ^= 1;
                         }
                     }
                 }
@@ -323,7 +332,7 @@ impl Cpu {
                         self.pc = self.pc + 2;
                     }
                     _ => {
-                        panic!("unhandled opcode {:X} at {:X}", op, self.pc);
+                        panic!("unhandled opcode {:4X} at {:4X}", op, self.pc);
                     }
                 }
             }
@@ -404,7 +413,7 @@ impl Cpu {
                         self.pc = self.pc + 2;
                     }
                     _ => {
-                        panic!("unhandled opcode {:X} at {:X}", op, self.pc);
+                        panic!("unhandled opcode {:4X} at {:4X}", op, self.pc);
                     }
                 }
             }
